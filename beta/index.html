@@ -1,0 +1,514 @@
+<html>
+    <head>
+        <meta charset="utf-8">
+        <title>Superledger</title>
+        <link rel="stylesheet" href="https://unpkg.com/purecss@1.0.0/build/pure-min.css" integrity="sha384-nn4HPE8lTHyVtfCBi5yW9d20FjT8BJwUXyWZT9InLYax14RDjBj46LmSztkmNP9w" crossorigin="anonymous">
+        <link rel="stylesheet" type="text/css" href="tooltips.css" />
+        <style>
+        #container {
+            height:100vh;
+            background:pink;
+        }
+        #nav {
+            height:80px;
+        }
+        #menu {
+            height: calc(100% - 80px);
+            overflow-y: scroll;
+        }
+        #content {
+            background:lightgreen;
+            overflow-y: scroll;
+        }
+        td {
+            border: 1px solid #fff;
+        }
+        #loader p {
+            display:block;
+            background:white;
+            line-height:50px
+            height:50px;
+            color:#000;
+            margin:0;
+            padding:10px;
+        }
+        </style>
+    </head>
+    <body>
+        <div class="pure-g" id="container">
+            <div class="pure-u-1" style="background:lightblue" id="nav">
+                <h2>superledger <small>PLAYER:  - starred: {{ $store.state.starred }}</small></h2>
+            </div>
+            <div class="pure-u-1-5" style="background:#414141" id="menu">
+                <div id="loader">
+                    <p v-show="!loaded"><a href="#" v-on:click="loadSave">Click to load save</a></p>
+                    <p v-show="loaded">Loaded file: {{ meta.filesize.format('0b') }} </p>
+                    <p v-show="loaded">{{ data.displayed_country_name }} ({{ data.player }})</p>
+                </div>
+                <div>
+                    <ul>
+                        <li v-on:click="showPage('lp-countries')">Countries</li>
+                        <li v-on:click="showPage('provinces')">Provinces</li>
+                        <li v-on:click="showPage('lp-warroom')">War Room</li>
+                    </ul>
+                </div>
+            </div>
+            <div class="pure-u-4-5" id="content">
+                <ledger inline-template>
+                    <div id="ledger">
+                        <keep-alive>
+                            <component :is="selectpage"></component>
+                        </keep-alive>
+                    </div>
+                </ledger>
+            </div>
+        </div>
+
+        <template id="index">
+            <div class="index">
+                <h1>homepage</h1>
+            </div>
+        </template>
+        <template id="lp-country">
+            <div class="page-country">
+                <p>&lt; <a href="#" v-on:click="$store.state.page = 'lp-countries'">Back to Countries</a></p>
+                <h1>{{ cdata.game.name }}</h1>
+                <p v-on:click="star()">Star this country (make available on the list page)</p>
+            </div>
+        </template>
+        <template id="lp-countries">
+            <div class="page-countries">
+                <h2>{{ cdata.rows.length }} Countries</h2>
+                <p>Filters: <input v-model="fname" type="text" id="name" placeholder="name or tag" />
+                    <input type="checkbox" v-model="filters.active"> only active
+                    <input type="checkbox" v-model="filters.independent"> only independent
+                    <input type="checkbox" v-model="filters.starred"> only starred
+                </p>
+                <datatable v-bind:cols="cdata.cols" v-bind:rows="cdata.rows" inline-template>
+                    <table>
+                        <tr>
+                            <th v-for="c in cols" v-bind:id="c[1]" v-on:click="sortcolumn(c[1])">{{ c[0] }}</th>
+                        </tr>
+
+                        <!-- loop through data -->
+                        <tr v-for="r in rows">
+                            <td v-for="col in cols" v-on:click="click(col[1], r)">
+                                {{ r[col[1]] }}
+                            </td>
+                        </tr>
+                    </table>
+                </datatable>
+            </div>
+        </template>
+        <template id="lp-warroom">
+            <div class="warroom">
+            <h2>Military View</h2>
+            <p>Show  Starred enemies, plus rivals, cbs you have, mil strength of enemies + subjects, compare mil stats too</p>
+            <ul>
+                <li>Click to show:</li>
+                <li v-on:click="show('rivals')">Rivals</li>
+                <li v-on:click="show('powers')">Great Powers</li>
+                <li v-on:click="show('starred')">Starred</li>
+            </ul>
+            <ul>
+                <li>Toggle:</li>
+                <li>Include overlords/subjects</li>
+                
+            </ul>
+        </div>
+        </template>
+        <script src="http://underscorejs.org/underscore.js"></script>
+        <script src="//cdnjs.cloudflare.com/ajax/libs/numeral.js/2.0.6/numeral.min.js"></script>
+        <script src="https://cdn.jsdelivr.net/npm/vue"></script>
+        <script src="https://unpkg.com/vuex"></script>
+        <script>
+
+            // Global datastore I guess
+            const store = new Vuex.Store({
+                state: {
+                    page: '',
+                    pagedata: {},
+                    data: {},
+                    countries: {},
+                    provinces: {},
+                    game: { c: {} },
+                    filters: {
+                        countries: {},
+                        provinces: {}
+                    },
+                    starred: [],
+                },
+                mutations: {
+                    changepage (state, newpage) {
+                        state.page = newpage['name'];
+                        state.pagedata = newpage['data'];
+                    },
+                    set_data (state, d) {
+                        state.data = d;
+                    },
+                    set_game (state, g) {
+                        state.game = g;
+                    },
+                    star (state, tag) {
+                        // Add to state.starred
+                        if (state.starred.indexOf(tag) == -1) {
+                            state.starred.push(tag);
+                        }
+                    }
+                },
+                getters: {
+                    countries: state => {
+                        // return filtered list of countries with only the fields we care about?
+                    },
+                    country: state => tag => {
+                        // 
+                        if (tag === undefined) {
+                            if (state.pagedata['tag'] !== undefined) {
+                                tag = state.pagedata['tag']; // probably?
+                            } else {
+                                return {};
+                            }
+                        }
+                        let c = {'game': {}, 'save': {}};
+                        c['game'] = state.game.c[tag];
+                        c['save'] = state.countries[tag];
+                        return c;
+                    }
+                }
+            });
+
+            // Global table component, arbitrary columns and values
+            Vue.component('datatable', {
+                props: ['cols', 'rows'],
+                data: {
+                    butt: 'butt2'
+                }
+            });
+
+            Vue.component('lp-country', {
+                //props: ['countr2y'],
+                template: '#lp-country',
+                data: function() {
+                    return {country: 'hello'}
+                },
+                computed: {
+                    cdata: function() {
+                        console.log('specific country page');
+                        let c = this.$store.getters.country();
+
+                        // Actual country object
+                        console.log('ccc',c)
+                        this.country = c;
+                        return c;
+                    }
+                },
+                methods: {
+                    star: function() {
+                        this.$store.commit('star', this.country['game']['tag']);
+                    }
+                }
+            });
+
+            Vue.component('lp-warroom', {
+                template: '#lp-warroom',
+                data: function() {
+                    return {
+                        include: {
+                            starred: true
+                        }
+                    }
+                },
+                methods: {
+                    show: function(which) {
+                        this[which] = !this[which];
+                        //console.log('which', which, this[which]);
+                    }
+                }
+            })
+
+            Vue.component('index', {
+                template: '#index',
+            });
+
+            // Let's go with a component per ledger page
+            Vue.component('lp-countries', {
+                template: '#lp-countries',
+                computed: {
+                    cdata: function() {
+                        console.log('calling computed', this.fname);
+                        // Calculate columns and rows
+                        let cols = [['Country', 'name'], /*['Culture', 'primary_culture'],*/ ['Military', 'military'], ['Technology', 'tech'], 
+                            ['Money', 'treasury'], ['Development', 'dev'],
+                            ['TEST', 'test'],// use this to limit the fields we send too
+                            ]; 
+                        let fields = []; _.each(cols, (x) => fields.push(x[1])); // get the field names
+
+                        let store_countries = this.$store.state.countries;
+                        let gamec = this.$store.state.game.c;
+                        let ignore = ['REB']; // ignore these tags
+
+                        // 
+                        let numeralize = ['treasury', 'dev']; // wrap these in numeral()
+                        let sortfixes = ['treasury', 'dev', 'tech', 'military']; // sort these by _x instead, since they'll be formatted
+
+                        //console.log('len all countries', Object.keys(store_countries).length);
+                        let countries = [];
+                        // loopdy
+                        _.each(store_countries, (val, idx) => {
+                            //console.log(idx);
+                            let c = {'tag': idx};
+
+                            // Check validity of country
+                            if (/\d/.test(idx) === false && idx in gamec && ignore.indexOf(idx) == -1) {
+
+                                // Merge in game data
+                                var name = gamec[idx]['name'];
+
+                                // Check for filters before we bother with any calculating
+                                var smushed = name.toLowerCase().replace(/ /gi, '').replace(/-/gi, '')
+                                if (this.fname !== undefined && (
+                                    smushed.indexOf(this.fname.toLowerCase()) == -1 &&
+                                    idx.indexOf(this.fname.toUpperCase()) == -1
+                                    )) {
+                                    return;
+                                }
+                                if (this.filters.active && numeral(val['dev']).value() === 0) {
+                                    return;
+                                }
+                                //console.log('beep',val['is_subject'], val['is_subject']['subject_type'])
+                                if (this.filters.independent && val['is_subject'] !== false) {
+                                    if (val['is_subject']['subject_type'] !== 'tributary_state') {
+                                        return;
+                                    }
+                                }
+                                if (this.filters.starred && this.$store.state.starred.indexOf(idx) === -1) {
+                                    return;
+                                }
+
+                                // Add in easy fields
+                                _.each(fields, (fv) => {
+                                    //console.log('fvv', fv)
+                                    if (numeralize.indexOf(fv) >= 0) {
+                                        //console.log('using numeral')
+                                        var useval = numeral(val[fv]);
+                                    } else {
+                                        var useval = val[fv];
+                                    }
+                                    c[fv] = useval;
+                                });
+                                c['test'] = val['is_subject']['subject_type'];
+
+                                c['name'] = name.charAt(0).toUpperCase() + name.slice(1); // capitalize just in case otherwise sort order is fudgy
+
+                                // Formatting
+                                c['_dev'] = c['dev'].value() 
+                                c['dev'] = c['dev'].format('0,0')
+
+                                c['_treasury'] = c['treasury'].value()
+                                c['treasury'] = c['treasury'].format(0)
+
+                                // Custom info
+                                c['_tech'] = val['tech']['sum'];
+                                c['tech'] = val['tech']['str'];
+
+                                // Military
+                                var army = val['army']['total'];
+                                //console.log('army', army)
+                                var inf = army['inf']; var cav = army['cav']; var art = army['art'];
+                                var tot = inf + cav + art;
+                                c['_military'] = tot;
+                                c['military'] = `${tot} (${inf}/${cav}/${art})`;
+
+                                // Subjects
+
+
+
+                                countries.push(c);
+                            }
+                        });
+                        //console.log('filtered', countries);
+
+                        // Sort data based on our opts in this.
+                        countries = _.sortBy(countries, (item) => {
+                            if (sortfixes.indexOf(this.sort) >= 0) {
+                                // Replace sort key
+                                return item['_' + this.sort];
+                            }
+                            return item[this.sort];
+                        });
+
+                        if (this.sort_dir == 0) {
+                            // reverse it
+                            countries.reverse();
+                        }
+
+                        return {
+                            cols: cols,
+                            rows: countries,
+
+                            // Sort options
+                            sort: ['name'],
+                            // Group options
+                            // Filter options
+                            filters: {},
+                        };
+                    }
+                },
+                methods: {
+                    click (field, val) {
+                        //console.log('idk', field, val);
+                        if (field == 'name') {
+                            // go to that page
+                            console.log(this);
+                            this.$store.commit('changepage', {'name': 'lp-country', 'data': val});
+                        }
+                    },
+                    sortcolumn(col) {
+                        //console.log('sort ', col)
+                        // are we toggling
+                        if (this.sortables.indexOf(col) == -1) {
+                            console.log('cant sort this col');
+                            return;
+                        }
+                        if (this.sort == col) {
+                            // reverse
+                            this.sort_dir = 1 - this.sort_dir;
+                        } else {
+                            // For now, only sort name column asc by default, since we usually wanna find highest
+                            if (col == 'name') {
+                                this.sort_dir = 1;
+                            } else {
+                                this.sort_dir = 0;
+                            }
+                        }
+
+                        this.sort = col;
+                    },
+                    filter(type, which) {
+                        this.$store.data.countries[type] = which;
+                    },
+                    toggle(type) {
+                        this.$store.data.countries[type] = !this.$store.data.countries[type];  
+                    }
+                },
+                data: function() { 
+                    return { 
+                        // these should persist across pages
+                        sort: 'name',
+                        sort_dir: 1, // 0=desc, 1=asc
+                        sortables: ['name', 'military', 'tech', 'treasury', 'dev'],
+                        //cols: cols,
+                        // subset for now plz
+                        fname: undefined, // filter by name
+                        filters: {
+                            active: false,
+                            independent: false, // change row class if independent or not
+                            starred: false,
+                        }
+                    } 
+                },
+                //watch: for this.loaded?
+            });
+
+            Vue.component('ledger', {
+                template: '<div id="ledger"> \
+                <h1>ledgera</h1><h2>aa{{ ledgerpage }}</h2> {{ show() }}',
+                //components: ['lp-countries']
+            });
+
+            var app = new Vue({
+                el: '#container',
+                store,
+                data: {
+                    //ledgerpage: 'index',
+                    message: 'Hello Vue',
+                    loaded: false,
+                    data: {},
+                    campaign_id: 0,
+
+                    meta: {
+                        filesize: numeral(0)
+                    }
+                },
+                computed: {
+                    selectpage: function() {
+                        console.log('selectpage()')
+                        return this.$store.state.page;
+                    },
+                },
+                methods: {
+                    loadSave() {
+                        let self = this;
+
+                        let promises = [
+                            fetch('countries.json'), fetch('save_whitelisted.json')
+                        ];
+                        // Get game data
+                        fetch('countries.json').then((resp) => resp.json())
+                        .then((cdata) => {
+                            //console.log('p', p);
+
+                            self.$store.state.game.c = cdata;
+
+                            // get save
+                            return fetch('save_whitelisted.json');
+                        })
+                        // Get save data
+                        .then((resp) => {
+                            self.meta.filesize = numeral(resp.headers.get('Content-Length'));
+                            return resp.json();
+                        })
+                        .then((data) => {
+                            console.log(data);
+                            self.data = data;
+                            self.$store.state.data = data;
+                            self.$store.state.countries = data['countries'];
+                            //self.$store.state.provinces = data['provinces'];
+
+                            self.loaded = true;
+                            self.showPage('lp-countries');
+                        });/*
+                        Promise.all(promises).then(function(resp) {
+                            console.log('promise resp', resp);
+                            //console.log(resp[0].json())
+                            //console.log(resp[1].json())
+                            //returnr js pesp;
+                            return {
+                                'countries': resp[0].json(),
+                                'data': resp[1].json()
+                            };
+                            //return resp[0].json();
+                            //return resp;
+                        })
+                        .then(function(data) {
+                            console.log('data', data['countries']);
+                        });
+                        /*
+                        fetch('save.json').then(function(resp) {
+                            var cl = resp.headers.get('Content-Length');
+                            self.meta.filesize = numeral(cl);
+                            return resp.json();
+                        }).then(function(data) {
+                            self.data = data;
+
+                            self.$store.state.data = data;
+                            // Get out some of the ones we want, this will be whitelisted in the parsers but for now eh
+                            // filter here actually so we don't have to go through the giant amount each time we recompute
+                            self.$store.state.countries = data['countries'];
+                            self.$store.state.provinces = data['provinces'];
+
+
+                            console.log('loaded?', data.length, self.$store.state.countries['HAB'])
+                            self.loaded = true;
+                        })*/
+                    },
+                    showPage(key) {
+                        console.log('showing page', key)
+                        this.ledgerpage = key;
+                        this.$store.state.page = key;
+                    }
+                },
+            });
+        </script>
+    </body>
+</html>
